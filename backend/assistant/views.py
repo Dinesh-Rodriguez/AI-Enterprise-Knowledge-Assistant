@@ -161,9 +161,8 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
 
 def index_document(document_id: int):
-    # The packaged local deployment does not require Redis/Celery. Process the
-    # document immediately so the user can ask questions without a worker.
-    index_document_task(document_id)
+    """Queue indexing so uploads do not block the API request."""
+    return index_document_task.delay(document_id)
 
 
 class ConversationViewSet(viewsets.ModelViewSet):

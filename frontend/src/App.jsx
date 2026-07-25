@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Bot, ChevronLeft, FileText, FileUp, FolderPlus, LogIn, MoreHorizontal, Send, Settings2, Sparkles, Trash2, UploadCloud, UserCircle } from "lucide-react";
+import { Bot, ChevronLeft, FileText, FileUp, FolderPlus, LogIn, MoreHorizontal, Plus, Send, Settings2, Sparkles, Trash2, UploadCloud, UserCircle } from "lucide-react";
 import client, { getAuthHeaders } from "./api/client";
 
 const emptyAuth = { username: "", email: "", password: "" };
 
 export default function App() {
   const [authMode, setAuthMode] = useState("login");
+  const [showIntro, setShowIntro] = useState(true);
   const [authForm, setAuthForm] = useState(emptyAuth);
   const [tokenReady, setTokenReady] = useState(Boolean(localStorage.getItem("access_token")));
   const [workspaces, setWorkspaces] = useState([]);
@@ -226,7 +227,14 @@ export default function App() {
 
   async function uploadDocument(event) {
     event.preventDefault();
-    if (!uploadFile || !selectedWorkspace) return;
+    if (!selectedWorkspace) {
+      setUploadState({ busy: false, error: "Create or select a workspace before uploading sources." });
+      return;
+    }
+    if (!uploadFile) {
+      document.getElementById("source-upload")?.click();
+      return;
+    }
     setUploadState({ busy: true, error: "" });
     const form = new FormData();
     form.append("workspace", selectedWorkspace);
@@ -250,6 +258,7 @@ export default function App() {
     setDocumentActionState({ busy: true, error: "" });
     try {
       await client.delete(`/documents/${docId}/`);
+      setIntelligenceOutput("");
       if (focusedDocument?.id === docId) {
         setFocusedDocument(null);
         setFocusedPage("");
@@ -281,11 +290,19 @@ export default function App() {
   async function createConversation() {
     if (!selectedWorkspace) return;
     setConversationState({ busy: true, error: "" });
+    setAnswer("");
+    setQuestion("");
+    setCitations([]);
+    setStreamError("");
+    setSelectedCitationKey("");
+    setFocusedDocument(null);
     try {
       const { data } = await client.post("/conversations/", {
         workspace: selectedWorkspace,
         title: "New conversation",
       });
+      setConversations((current) => [...current.filter((conversation) => conversation.id !== data.id), data]);
+      setSelectedConversation(data.id);
       await loadWorkspaceData(selectedWorkspace, data.id);
       setConversationState({ busy: false, error: "" });
     } catch (error) {
@@ -337,12 +354,23 @@ export default function App() {
   }
 
   async function ask() {
-    if (!selectedConversation || !question.trim()) return;
+    if (!selectedWorkspace || !question.trim()) return;
     setAnswer("");
     setCitations([]);
     setStreamError("");
     try {
-      const response = await fetch(`${client.defaults.baseURL}/conversations/${selectedConversation}/stream_ask/`, {
+      let conversationId = selectedConversation;
+      if (!conversationId) {
+        const { data } = await client.post("/conversations/", { workspace: selectedWorkspace, title: "New conversation" });
+        conversationId = data.id;
+        setConversations((current) => [...current, data]);
+        setSelectedConversation(conversationId);
+      }
+      const conversationTitle = question.trim().replace(/\s+/g, " ").slice(0, 52);
+      if (conversationTitle) {
+        await client.patch(`/conversations/${conversationId}/`, { title: conversationTitle });
+      }
+      const response = await fetch(`${client.defaults.baseURL}/conversations/${conversationId}/stream_ask/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -401,6 +429,7 @@ export default function App() {
       const messages = conversations.find((c) => c.id === selectedConversation)?.messages || [];
       const seen = new Set();
       return messages.filter((message) => {
+        if (message.role === "assistant" && isPromptEcho(message.content)) return false;
         const key = `${message.role}:${message.content.trim()}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -411,6 +440,38 @@ export default function App() {
   );
 
   if (!tokenReady) {
+    if (showIntro) {
+      return (
+        <div className="intro-shell">
+          <header className="intro-nav">
+            <div className="brand"><Bot size={18} /><span>AI Enterprise Knowledge Assistant</span></div>
+            <button className="ghost intro-login" type="button" onClick={() => { setAuthMode("login"); setShowIntro(false); }}>Sign in</button>
+          </header>
+          <main className="intro-main">
+            <div className="intro-copy">
+              <p className="eyebrow">PRIVATE KNOWLEDGE WORKSPACE</p>
+              <h1>Turn company knowledge into confident answers.</h1>
+              <p className="intro-lede">Bring your team documents together, ask natural questions, and trace every answer back to the source.</p>
+              <div className="intro-actions">
+                <button className="primary" type="button" onClick={() => { setAuthMode("register"); setShowIntro(false); }}>Create your workspace</button>
+                <button className="ghost" type="button" onClick={() => { setAuthMode("login"); setShowIntro(false); }}>I already have an account</button>
+              </div>
+            </div>
+            <div className="intro-preview" aria-label="Knowledge workspace preview">
+              <div className="preview-top"><span className="preview-dot" /><span>Workspace AI</span><span className="preview-status">Ready</span></div>
+              <div className="preview-question">What are the key policies in our handbook?</div>
+              <div className="preview-answer">Answers grounded in your uploaded sources, with citations your team can verify.</div>
+              <div className="preview-citation"><span>Source</span><strong>Employee Handbook.pdf</strong><small>Page 12</small></div>
+            </div>
+          </main>
+          <section className="intro-features">
+            <div><strong>Bring sources together</strong><span>Upload the documents your team relies on every day.</span></div>
+            <div><strong>Ask without digging</strong><span>Get focused answers instead of searching through folders.</span></div>
+            <div><strong>Trust every answer</strong><span>Follow citations back to the exact source passage.</span></div>
+          </section>
+        </div>
+      );
+    }
     return (
       <div className="shell auth-shell">
         <form className="panel auth-panel" onSubmit={submitAuth}>
@@ -437,6 +498,7 @@ export default function App() {
           <button type="button" className="ghost" onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>
             {authMode === "login" ? "Need an account?" : "Already have an account?"}
           </button>
+          <button type="button" className="ghost auth-back" onClick={() => setShowIntro(true)}>Back to overview</button>
         </form>
       </div>
     );
@@ -489,7 +551,7 @@ export default function App() {
             </label>
             <input id="source-upload" className="visually-hidden" type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
             {uploadFile && <div className="selected-file"><FileText size={15} /><span>{uploadFile.name}</span><button type="button" onClick={() => setUploadFile(null)} aria-label="Remove selected file">×</button></div>}
-            <button className="primary" type="submit" disabled={!uploadFile}><FileUp size={16} />Upload source</button>
+            <button className="primary" type="submit" disabled={!selectedWorkspace}><FileUp size={16} />{uploadFile ? "Upload source" : "Choose a file"}</button>
           </form>
           {uploadState.busy && <div className="message muted">Uploading and indexing...</div>}
           {uploadState.error && <div className="message error">{uploadState.error}</div>}
@@ -587,11 +649,13 @@ export default function App() {
               <h2>Conversation</h2>
               <div className="conversation-controls">
                 <select value={selectedConversation || ""} onChange={(e) => setSelectedConversation(Number(e.target.value))}>
-                  <option value="">Select</option>
                   {conversations.map((conv) => (
                     <option key={conv.id} value={conv.id}>{conv.title || `Conversation ${conv.id}`}</option>
                   ))}
                 </select>
+                <button className="secondary-action" type="button" onClick={createConversation} disabled={!selectedWorkspace || conversationState.busy}>
+                  <Plus size={15} /> New
+                </button>
                 <button className="icon-button danger" type="button" onClick={() => openDeleteTarget({ kind: "conversation", id: selectedConversation, label: "this conversation" })} disabled={!selectedConversation} title="Delete conversation">
                   <Trash2 size={16} />
                 </button>
@@ -615,11 +679,11 @@ export default function App() {
                   {message.content}
                 </div>
               ))}
-              {answer && <div className="message assistant">{answer}</div>}
+              {answer && !isPromptEcho(answer) && <div className="message assistant">{answer}</div>}
             </div>
             <div className="chatbar">
               <textarea rows="3" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about policies, docs, procedures..." />
-              <button className="primary" onClick={ask} disabled={!selectedConversation || !question.trim()}>
+              <button className="primary" onClick={ask} disabled={!selectedWorkspace || !question.trim()}>
                 <Send size={16} />
                 Ask
               </button>
@@ -729,6 +793,10 @@ function parseSseEvent(chunk) {
   const name = lines.find((line) => line.startsWith("event:"))?.replace("event: ", "") || "";
   const data = lines.find((line) => line.startsWith("data:"))?.replace("data: ", "") || "";
   return { name, data };
+}
+
+function isPromptEcho(content = "") {
+  return content.includes("You are an enterprise knowledge assistant.") && content.includes("Context:");
 }
 
 function formatApiError(error) {

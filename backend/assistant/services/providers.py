@@ -28,11 +28,19 @@ class LocalEmbeddingProvider:
 @dataclass
 class LocalLLMProvider:
     def chat(self, messages: list[dict], model: str | None = None) -> str:
-        last_user = next((msg["content"] for msg in reversed(messages) if msg["role"] == "user"), "")
-        context = "\n".join(
-            msg["content"] for msg in messages if msg["role"] == "system"
-        )
-        return f"{context}\n\nAnswer: {last_user}".strip()
+        query = next((msg["content"] for msg in reversed(messages) if msg["role"] == "user"), "")
+        context_message = next((msg["content"] for msg in messages if msg["content"].startswith("Context:")), "")
+        context = context_message.removeprefix("Context:").strip()
+        passages = []
+        for line in context.splitlines():
+            line = line.strip()
+            if line and not line.startswith("[") and line not in passages:
+                passages.append(line)
+        if not passages:
+            return "I could not find a concise answer in the indexed sources."
+        if "summar" in query.lower():
+            return "Summary: " + " ".join(passages[:3])
+        return passages[0]
 
 
 @dataclass
