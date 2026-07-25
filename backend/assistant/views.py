@@ -161,7 +161,9 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
 
 def index_document(document_id: int):
-    index_document_task.delay(document_id)
+    # The packaged local deployment does not require Redis/Celery. Process the
+    # document immediately so the user can ask questions without a worker.
+    index_document_task(document_id)
 
 
 class ConversationViewSet(viewsets.ModelViewSet):
@@ -183,8 +185,11 @@ class ConversationViewSet(viewsets.ModelViewSet):
             return Response({"detail": "question is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         Message.objects.create(conversation=conversation, role=Message.Role.USER, content=question)
-        hits = retrieve_relevant_chunks(conversation.workspace, question)
-        result = compose_answer(question, hits)
+        try:
+            hits = retrieve_relevant_chunks(conversation.workspace, question)
+            result = compose_answer(question, hits)
+        except Exception:
+            result = {"answer": "I could not complete source search right now. Please try again after confirming the document is ready.", "citations": []}
         message = Message.objects.create(
             conversation=conversation,
             role=Message.Role.ASSISTANT,
@@ -206,8 +211,11 @@ class ConversationViewSet(viewsets.ModelViewSet):
             return Response({"detail": "question is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         Message.objects.create(conversation=conversation, role=Message.Role.USER, content=question)
-        hits = retrieve_relevant_chunks(conversation.workspace, question)
-        result = compose_answer(question, hits)
+        try:
+            hits = retrieve_relevant_chunks(conversation.workspace, question)
+            result = compose_answer(question, hits)
+        except Exception:
+            result = {"answer": "I could not complete source search right now. Please try again after confirming the document is ready.", "citations": []}
         assistant_message = Message.objects.create(
             conversation=conversation,
             role=Message.Role.ASSISTANT,

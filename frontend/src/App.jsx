@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Bot, ChevronLeft, FileUp, FolderPlus, LogIn, Send, Sparkles, Trash2 } from "lucide-react";
+import { Bot, ChevronLeft, FileText, FileUp, FolderPlus, LogIn, MoreHorizontal, Send, Settings2, Sparkles, Trash2, UploadCloud, UserCircle } from "lucide-react";
 import client, { getAuthHeaders } from "./api/client";
 
 const emptyAuth = { username: "", email: "", password: "" };
@@ -43,6 +43,16 @@ export default function App() {
   }, [tokenReady]);
 
   useEffect(() => {
+    const expire = () => {
+      setTokenReady(false);
+      setCurrentUsername("");
+      setAuthError("Your session expired. Please sign in again.");
+    };
+    window.addEventListener("auth-expired", expire);
+    return () => window.removeEventListener("auth-expired", expire);
+  }, []);
+
+  useEffect(() => {
     if (selectedWorkspace) {
       loadWorkspaceData(selectedWorkspace);
       loadWorkspaceMeta(selectedWorkspace);
@@ -83,7 +93,15 @@ export default function App() {
     setDocuments(docs.data);
     setConversations(convs.data);
     const nextConversationId = preferredConversationId || selectedConversation;
-    if (!convs.data.some((conv) => conv.id === nextConversationId)) {
+    if (!convs.data.length) {
+      try {
+        const { data } = await client.post("/conversations/", { workspace: workspaceId, title: "Getting started" });
+        setConversations([data]);
+        setSelectedConversation(data.id);
+      } catch (error) {
+        setConversationState({ busy: false, error: formatApiError(error) });
+      }
+    } else if (!convs.data.some((conv) => conv.id === nextConversationId)) {
       setSelectedConversation(convs.data[0]?.id || null);
     } else if (preferredConversationId) {
       setSelectedConversation(preferredConversationId);
@@ -153,9 +171,17 @@ export default function App() {
 
   async function createWorkspace(event) {
     event.preventDefault();
-    await client.post("/workspaces/", { name: workspaceName, description: "" });
-    setWorkspaceName("");
-    loadAll();
+    if (!workspaceName.trim()) return;
+    setWorkspaceActionState({ busy: true, error: "" });
+    try {
+      const { data } = await client.post("/workspaces/", { name: workspaceName.trim(), description: "" });
+      setWorkspaceName("");
+      setSelectedWorkspace(data.id);
+      await loadAll();
+      setWorkspaceActionState({ busy: false, error: "" });
+    } catch (error) {
+      setWorkspaceActionState({ busy: false, error: formatApiError(error) });
+    }
   }
 
   async function deleteWorkspace(workspaceId) {
@@ -371,7 +397,16 @@ export default function App() {
   }
 
   const conversationMessages = useMemo(
-    () => conversations.find((c) => c.id === selectedConversation)?.messages || [],
+    () => {
+      const messages = conversations.find((c) => c.id === selectedConversation)?.messages || [];
+      const seen = new Set();
+      return messages.filter((message) => {
+        const key = `${message.role}:${message.content.trim()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    },
     [conversations, selectedConversation],
   );
 
@@ -383,19 +418,21 @@ export default function App() {
             <Bot size={18} />
             <span>AI Enterprise Knowledge Assistant</span>
           </div>
-          <h1>{authMode === "login" ? "Sign in" : "Create account"}</h1>
+          <p className="eyebrow">PRIVATE KNOWLEDGE WORKSPACE</p>
+          <h1>{authMode === "login" ? "Welcome back" : "Create your account"}</h1>
+          <p className="auth-copy">Bring your team documents together, then ask questions and get answers grounded in your sources.</p>
           <div className="stack">
-            <input placeholder="Username" value={authForm.username} onChange={(e) => setAuthForm({ ...authForm, username: e.target.value })} />
+            <label>Username<input placeholder="e.g. dinesh" value={authForm.username} onChange={(e) => setAuthForm({ ...authForm, username: e.target.value })} /></label>
             {authMode === "register" && (
-              <input placeholder="Email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} />
+              <label>Email<input type="email" placeholder="you@company.com" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} /></label>
             )}
-            <input type="password" placeholder="Password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} />
+            <label>Password<input type="password" placeholder="At least 8 characters" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} /></label>
           </div>
           <div className="hint">Password must be at least 8 characters.</div>
           {authError && <div className="message error">{authError}</div>}
           <button className="primary" type="submit">
             <LogIn size={16} />
-            {authMode === "login" ? "Login" : "Register"}
+            {authMode === "login" ? "Sign in" : "Create account"}
           </button>
           <button type="button" className="ghost" onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>
             {authMode === "login" ? "Need an account?" : "Already have an account?"}
@@ -413,7 +450,7 @@ export default function App() {
           <span>Knowledge Assistant</span>
         </div>
         <div className="section">
-          <h2>Workspaces</h2>
+          <div className="section-heading"><div><h2>Workspace</h2><p>Choose where your knowledge lives.</p></div></div>
           <form onSubmit={createWorkspace} className="inline-form">
             <input placeholder="New workspace" value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} />
             <button className="icon-button" type="submit" title="Create workspace"><FolderPlus size={16} /></button>
@@ -443,10 +480,16 @@ export default function App() {
           {workspaceActionState.error && <div className="message error">{workspaceActionState.error}</div>}
         </div>
         <div className="section">
-          <h2>Documents</h2>
+          <div className="section-heading"><div><h2>Sources</h2><p>Upload files to make them searchable.</p></div></div>
           <form onSubmit={uploadDocument} className="upload-form">
-            <input type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
-            <button className="primary" type="submit"><FileUp size={16} />Upload</button>
+            <label className="upload-dropzone" htmlFor="source-upload">
+              <UploadCloud size={22} />
+              <span className="upload-title">Drag & drop files or <strong>browse</strong></span>
+              <span className="upload-hint">PDF, TXT, CSV up to 25 MB</span>
+            </label>
+            <input id="source-upload" className="visually-hidden" type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+            {uploadFile && <div className="selected-file"><FileText size={15} /><span>{uploadFile.name}</span><button type="button" onClick={() => setUploadFile(null)} aria-label="Remove selected file">×</button></div>}
+            <button className="primary" type="submit" disabled={!uploadFile}><FileUp size={16} />Upload source</button>
           </form>
           {uploadState.busy && <div className="message muted">Uploading and indexing...</div>}
           {uploadState.error && <div className="message error">{uploadState.error}</div>}
@@ -463,15 +506,13 @@ export default function App() {
                   }}
                 >
                   <span>{doc.title}</span>
-                  <span className={`status-pill status-${doc.status}`}>{doc.status}</span>
+                  <span className={`status-pill status-${doc.status}`}>{statusLabel(doc.status)}</span>
                 </button>
                 <div className="doc-actions">
-                  <button type="button" className="ghost small" onClick={() => retryDocument(doc.id)}>Retry</button>
-                  <button type="button" className="ghost small" onClick={() => runIntelligence("summarize", doc.id)}>Summarize</button>
-                  <button type="button" className="ghost small" onClick={() => runIntelligence("meeting_notes", doc.id)}>Notes</button>
-                  <button type="button" className="ghost small danger-text" onClick={() => openDeleteTarget({ kind: "document", id: doc.id, label: doc.title })} disabled={documentActionState.busy}>
-                    Delete
-                  </button>
+                  <button type="button" className="doc-action" onClick={() => runIntelligence("summarize", doc.id)}>Summarize</button>
+                  <button type="button" className="doc-action" onClick={() => runIntelligence("meeting_notes", doc.id)}>Notes</button>
+                  <button type="button" className="doc-action icon-only" title="More actions" aria-label="More actions"><MoreHorizontal size={16} /></button>
+                  <button type="button" className="doc-action danger-text" onClick={() => openDeleteTarget({ kind: "document", id: doc.id, label: doc.title })} disabled={documentActionState.busy}>Delete</button>
                 </div>
               </div>
             ))}
@@ -479,33 +520,33 @@ export default function App() {
           {documentActionState.error && <div className="message error">{documentActionState.error}</div>}
         </div>
         <div className="section">
-          <h2>Workspace AI</h2>
+          <div className="section-title-with-icon"><Settings2 size={16} /><h2>Workspace AI</h2></div>
+          <p className="settings-help"><strong>Answer model</strong> writes the response. <strong>Embedding model</strong> turns document text into searchable vectors so the right passages can be found.</p>
           <div className="settings-grid">
-            <select value={settingsDraft.llm_provider} onChange={(e) => setSettingsDraft({ ...settingsDraft, llm_provider: e.target.value })}>
-              <option value="local">Local</option>
-              <option value="openai">OpenAI</option>
-              <option value="gemini">Gemini</option>
-              <option value="ollama">Ollama</option>
-            </select>
-            <select value={settingsDraft.embedding_provider} onChange={(e) => setSettingsDraft({ ...settingsDraft, embedding_provider: e.target.value })}>
-              <option value="local">Local</option>
-              <option value="openai">OpenAI</option>
-              <option value="gemini">Gemini</option>
-              <option value="ollama">Ollama</option>
-            </select>
-            <input value={settingsDraft.llm_model} onChange={(e) => setSettingsDraft({ ...settingsDraft, llm_model: e.target.value })} placeholder="LLM model" />
-            <input value={settingsDraft.embedding_model} onChange={(e) => setSettingsDraft({ ...settingsDraft, embedding_model: e.target.value })} placeholder="Embedding model" />
+            <div className="model-setting">
+              <label>Answer model</label>
+              <div className="model-fields">
+                <select aria-label="Answer model provider" value={settingsDraft.llm_provider} onChange={(e) => setSettingsDraft({ ...settingsDraft, llm_provider: e.target.value })}>
+                  <option value="local">Local</option><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="ollama">Ollama</option>
+                </select>
+                <input aria-label="Answer model name" value={settingsDraft.llm_model} onChange={(e) => setSettingsDraft({ ...settingsDraft, llm_model: e.target.value })} placeholder="e.g. llama3.1:8b" />
+              </div>
+              <span className="field-hint">Leave blank to use the provider default.</span>
+            </div>
+            <div className="model-setting">
+              <label>Embedding model</label>
+              <div className="model-fields">
+                <select aria-label="Embedding model provider" value={settingsDraft.embedding_provider} onChange={(e) => setSettingsDraft({ ...settingsDraft, embedding_provider: e.target.value })}>
+                  <option value="local">Local</option><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="ollama">Ollama</option>
+                </select>
+                <input aria-label="Embedding model name" value={settingsDraft.embedding_model} onChange={(e) => setSettingsDraft({ ...settingsDraft, embedding_model: e.target.value })} placeholder="e.g. nomic-embed-text" />
+              </div>
+              <span className="field-hint">Used to index and search your sources.</span>
+            </div>
           </div>
           <button className="primary" type="button" onClick={saveWorkspaceSettings}>Save settings</button>
           {workspaceMessage && <div className={workspaceMessage.includes("saved") ? "message muted" : "message error"}>{workspaceMessage}</div>}
           {workspaceActionState.error && <div className="message error">{workspaceActionState.error}</div>}
-          <div className="list">
-            {workspaceMembers.map((member) => (
-              <div key={member.id} className="message muted">
-                {member.username || `User ${member.user}`} - {member.role}
-              </div>
-            ))}
-          </div>
         </div>
         <div className="sidebar-footer">
           <div className="user-row">
@@ -521,8 +562,9 @@ export default function App() {
       <main className="content">
         <header className="topbar">
           <div>
-            <h1>Ask AI</h1>
-            <p>Answers with citations from indexed company content.</p>
+            <p className="eyebrow">{selectedWorkspace ? "WORKSPACE ACTIVE" : "GET STARTED"}</p>
+            <h1>{selectedWorkspace ? (workspaces.find((w) => w.id === selectedWorkspace)?.name || "Workspace") : "Your knowledge, ready to use"}</h1>
+            <p>{selectedWorkspace ? "Ask questions and trace every answer back to a source." : "Create a workspace, add your first source, and start a grounded conversation."}</p>
           </div>
           <div className="topbar-actions">
             <button className="primary" onClick={createConversation} disabled={conversationState.busy || !selectedWorkspace}>
@@ -530,6 +572,14 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <div className="workflow-strip" aria-label="Workspace workflow">
+          <div className="workflow-step complete"><span>1</span><div><strong>Workspace</strong><small>Selected</small></div></div>
+          <div className="workflow-line" />
+          <div className={`workflow-step ${documents.length ? "complete" : "current"}`}><span>2</span><div><strong>Add sources</strong><small>{documents.length ? `${documents.length} source${documents.length === 1 ? "" : "s"}` : "Upload a file"}</small></div></div>
+          <div className="workflow-line" />
+          <div className={`workflow-step ${selectedConversation ? "current" : ""}`}><span>3</span><div><strong>Ask questions</strong><small>{selectedConversation ? "Ready when you are" : "Create a conversation"}</small></div></div>
+        </div>
 
         <section className="grid">
           <div className="panel conversation-panel">
@@ -548,6 +598,18 @@ export default function App() {
               </div>
             </div>
             <div className="messages">
+              {!conversationMessages.length && !answer && (
+                <div className="chat-empty">
+                  <div className="chat-empty-icon"><Sparkles size={20} /></div>
+                  <h3>Ask your workspace</h3>
+                  <p>Questions about your uploaded sources work best when they are specific.</p>
+                  <div className="prompt-chips">
+                    {["Summarize this document", "What are the key policies?", "Find important dates"].map((prompt) => (
+                      <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>{prompt}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {conversationMessages.map((message) => (
                 <div key={message.id} className={`message ${message.role}`}>
                   {message.content}
@@ -673,7 +735,14 @@ function formatApiError(error) {
   const data = error?.response?.data;
   if (!data) return error?.message || "Request failed.";
   if (typeof data === "string") return data;
-  const values = Object.values(data).flat().filter(Boolean);
+  const values = Object.values(data)
+    .flat(Infinity)
+    .map((value) => (typeof value === "object" ? value?.string || value?.detail || JSON.stringify(value) : value))
+    .filter(Boolean);
   if (values.length) return values.join(" ");
   return "Request failed.";
+}
+
+function statusLabel(status) {
+  return { uploaded: "Uploaded", indexing: "Indexing", ready: "Ready to ask", failed: "Needs attention" }[status] || status;
 }

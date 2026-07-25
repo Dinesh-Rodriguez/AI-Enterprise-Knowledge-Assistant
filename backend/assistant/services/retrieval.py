@@ -23,15 +23,23 @@ def retrieve_relevant_chunks(workspace, query: str, limit: int = 5) -> list[Retr
     query_embedding = get_embedding_provider().embed_texts([query])[0]
     hits: list[RetrievalHit] = []
 
-    queryset = (
-        DocumentChunk.objects.filter(document__workspace=workspace, embedding__isnull=False)
-        .select_related("document")
-        .annotate(distance=CosineDistance("embedding", query_embedding))
-        .order_by("distance")
-    )
+    try:
+        queryset = (
+            DocumentChunk.objects.filter(document__workspace=workspace, embedding__isnull=False)
+            .select_related("document")
+            .annotate(distance=CosineDistance("embedding", query_embedding))
+            .order_by("distance")
+        )
+        rows = [(chunk, float(chunk.distance or 0.0)) for chunk in queryset[:limit]]
+    except Exception:
+        # SQLite does not provide pgvector operators. Use a deterministic
+        # lexical fallback for the bundled local deployment.
+        terms = {term for term in query.lower().split() if len(term) > 2}
+        chunks = list(DocumentChunk.objects.filter(document__workspace=workspace).select_related("document"))
+        chunks.sort(key=lambda chunk: sum(term in chunk.content.lower() for term in terms), reverse=True)
+        rows = [(chunk, 0.0) for chunk in chunks[:limit]]
 
-    for chunk in queryset[:limit]:
-        distance = float(chunk.distance or 0.0)
+    for chunk, distance in rows:
         hits.append(
             RetrievalHit(
                 chunk_id=chunk.id,

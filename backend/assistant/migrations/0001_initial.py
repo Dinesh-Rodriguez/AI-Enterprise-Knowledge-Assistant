@@ -3,7 +3,7 @@
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
-from pgvector.django import HnswIndex, VectorExtension, VectorField
+from pgvector.django import VectorField
 
 
 class Migration(migrations.Migration):
@@ -15,7 +15,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        VectorExtension(),
         migrations.CreateModel(
             name='Document',
             fields=[
@@ -49,9 +48,6 @@ class Migration(migrations.Migration):
                 ('embedding', VectorField(blank=True, dimensions=1536, null=True)),
                 ('document', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='chunks', to='assistant.document')),
             ],
-            options={
-                'indexes': [HnswIndex(name='documentchunk_embedding_hnsw', fields=['embedding'], m=16, ef_construction=64, opclasses=['vector_cosine_ops'])],
-            },
         ),
         migrations.CreateModel(
             name='Message',
