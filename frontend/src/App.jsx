@@ -7,6 +7,9 @@ const emptyAuth = { username: "", email: "", password: "" };
 export default function App() {
   const [authMode, setAuthMode] = useState("login");
   const [showIntro, setShowIntro] = useState(true);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileName, setProfileName] = useState(localStorage.getItem("username") || "");
+  const [profileEmail, setProfileEmail] = useState(localStorage.getItem("email") || "");
   const [authForm, setAuthForm] = useState(emptyAuth);
   const [tokenReady, setTokenReady] = useState(Boolean(localStorage.getItem("access_token")));
   const [workspaces, setWorkspaces] = useState([]);
@@ -138,7 +141,16 @@ export default function App() {
       localStorage.setItem("access_token", data.access);
       localStorage.setItem("refresh_token", data.refresh);
       localStorage.setItem("username", authForm.username);
+      if (authForm.email) localStorage.setItem("email", authForm.email);
       setCurrentUsername(authForm.username);
+      setProfileName(authForm.username);
+      try {
+        const profile = await client.get("/auth/me/");
+        setProfileEmail(profile.data.email || "");
+        if (profile.data.email) localStorage.setItem("email", profile.data.email);
+      } catch {
+        setProfileEmail(authForm.email || "");
+      }
       setTokenReady(true);
     } catch (error) {
       setAuthError(formatApiError(error));
@@ -149,6 +161,7 @@ export default function App() {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("username");
+    localStorage.removeItem("email");
     setTokenReady(false);
     setSelectedWorkspace(null);
     setSelectedConversation(null);
@@ -162,6 +175,7 @@ export default function App() {
     setUploadState({ busy: false, error: "" });
     setAuthForm(emptyAuth);
     setCurrentUsername("");
+    setProfileName("");
     setQuestion("");
     setAnswer("");
     setCitations([]);
@@ -454,7 +468,6 @@ export default function App() {
               <p className="intro-lede">Bring your team documents together, ask natural questions, and trace every answer back to the source.</p>
               <div className="intro-actions">
                 <button className="primary" type="button" onClick={() => { setAuthMode("register"); setShowIntro(false); }}>Create your workspace</button>
-                <button className="ghost" type="button" onClick={() => { setAuthMode("login"); setShowIntro(false); }}>I already have an account</button>
               </div>
             </div>
             <div className="intro-preview" aria-label="Knowledge workspace preview">
@@ -462,12 +475,13 @@ export default function App() {
               <div className="preview-question">What are the key policies in our handbook?</div>
               <div className="preview-answer">Answers grounded in your uploaded sources, with citations your team can verify.</div>
               <div className="preview-citation"><span>Source</span><strong>Employee Handbook.pdf</strong><small>Page 12</small></div>
+              <div className="preview-sources"><span>Indexed sources</span><div><b>3</b> ready to search <i>Updated just now</i></div></div>
             </div>
           </main>
           <section className="intro-features">
-            <div><strong>Bring sources together</strong><span>Upload the documents your team relies on every day.</span></div>
-            <div><strong>Ask without digging</strong><span>Get focused answers instead of searching through folders.</span></div>
-            <div><strong>Trust every answer</strong><span>Follow citations back to the exact source passage.</span></div>
+            <div><b className="feature-number">01</b><strong>Bring sources together</strong><span>Upload the documents your team relies on every day.</span></div>
+            <div><b className="feature-number">02</b><strong>Ask without digging</strong><span>Get focused answers instead of searching through folders.</span></div>
+            <div><b className="feature-number">03</b><strong>Trust every answer</strong><span>Follow citations back to the exact source passage.</span></div>
           </section>
         </div>
       );
@@ -611,15 +625,34 @@ export default function App() {
           {workspaceActionState.error && <div className="message error">{workspaceActionState.error}</div>}
         </div>
         <div className="sidebar-footer">
-          <div className="user-row">
-            <div className="user-label">Signed in as</div>
-            <div className="user-name">{currentUsername || "Unknown user"}</div>
+          <div className="profile-footer-row">
+            <div className="user-row">
+              <div className="user-label">Signed in as</div>
+              <div className="user-name">{currentUsername || "Unknown user"}</div>
+            </div>
+            <button className="ghost profile-button" type="button" onClick={() => { setProfileName(currentUsername); setProfileOpen(true); }} title="View my details" aria-label="View my details">
+              <UserCircle size={16} />
+            </button>
           </div>
           <button className="ghost" type="button" onClick={logout}>
             Logout
           </button>
         </div>
       </aside>
+
+      {profileOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setProfileOpen(false)}>
+          <div className="modal profile-modal" role="dialog" aria-modal="true" aria-labelledby="profile-title" onClick={(event) => event.stopPropagation()}>
+            <div className="profile-heading"><UserCircle size={22} /><div><h3 id="profile-title">My details</h3><p>Update the name shown in your workspace.</p></div></div>
+            <label>Display name<input value={profileName} onChange={(event) => setProfileName(event.target.value)} /></label>
+            <div className="profile-readonly"><span>Email</span><strong>{profileEmail || "Not provided"}</strong></div>
+            <div className="modal-actions">
+              <button type="button" className="ghost" onClick={() => setProfileOpen(false)}>Cancel</button>
+              <button type="button" className="primary" onClick={() => { const next = profileName.trim() || currentUsername; localStorage.setItem("username", next); setCurrentUsername(next); setProfileName(next); setProfileOpen(false); }}>Save changes</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="content">
         <header className="topbar">

@@ -48,6 +48,13 @@ class LoginView(TokenObtainPairView):
     serializer_class = LoginSerializer
 
 
+class CurrentUserView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        return Response({"username": request.user.username, "email": request.user.email})
+
+
 class WorkspaceViewSet(viewsets.ModelViewSet):
     serializer_class = WorkspaceSerializer
 
