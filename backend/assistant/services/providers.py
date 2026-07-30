@@ -31,16 +31,33 @@ class LocalLLMProvider:
         query = next((msg["content"] for msg in reversed(messages) if msg["role"] == "user"), "")
         context_message = next((msg["content"] for msg in messages if msg["content"].startswith("Context:")), "")
         context = context_message.removeprefix("Context:").strip()
-        passages = []
+        raw_lines = []
         for line in context.splitlines():
             line = line.strip()
-            if line and not line.startswith("[") and line not in passages:
-                passages.append(line)
-        if not passages:
+            if line and not line.startswith("[") and line not in raw_lines:
+                raw_lines.append(line)
+        sentences = []
+        for line in raw_lines:
+            for sentence in line.replace("\n", " ").split(". "):
+                sentence = sentence.strip().rstrip(".")
+                if len(sentence) > 24 and sentence not in sentences:
+                    sentences.append(sentence)
+        if not sentences:
             return "I could not find a concise answer in the indexed sources."
         if "summar" in query.lower():
-            return "Summary: " + " ".join(passages[:3])
-        return passages[0]
+            return "Summary:\n" + "\n".join(f"- {sentence}." for sentence in sentences[:8])
+        query_lower = query.lower()
+        if "purpose" in query_lower or "role" in query_lower:
+            matches = [sentence for sentence in sentences if any(term in sentence.lower() for term in ("responsible", "helps organizations", "employee", "workplace"))]
+            if matches:
+                return " ".join(matches[:2]) + "."
+        if "mean" in query_lower or "what is hr" in query_lower:
+            matches = [sentence for sentence in sentences if "human resources" in sentence.lower()]
+            if matches:
+                return matches[0] + "."
+        query_terms = {term for term in query.lower().split() if len(term) > 3}
+        relevant = [sentence for sentence in sentences if query_terms.intersection(sentence.lower().split())]
+        return (relevant or sentences)[:3][0] + "."
 
 
 @dataclass

@@ -712,7 +712,9 @@ export default function App() {
                   {message.content}
                 </div>
               ))}
-              {answer && !isPromptEcho(answer) && <div className="message assistant">{answer}</div>}
+              {answer && !isPromptEcho(answer) && !conversationMessages.some((message) => message.role === "assistant" && normalizeAnswer(message.content) === normalizeAnswer(answer)) && (
+                <div className="message assistant">{answer}</div>
+              )}
             </div>
             <div className="chatbar">
               <textarea rows="3" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about policies, docs, procedures..." />
@@ -830,6 +832,10 @@ function parseSseEvent(chunk) {
 
 function isPromptEcho(content = "") {
   return content.includes("You are an enterprise knowledge assistant.") && content.includes("Context:");
+}
+
+function normalizeAnswer(content = "") {
+  return content.replace(/\s+/g, " ").trim();
 }
 
 function formatApiError(error) {

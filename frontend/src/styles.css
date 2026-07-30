@@ -84,7 +84,7 @@ button, input, textarea, select {
 }
 
 .app-shell {
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 288px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -107,7 +107,7 @@ button, input, textarea, select {
   gap: 18px;
   min-width: 0;
   min-height: 100vh;
-  max-width: 1500px;
+  max-width: none;
   width: 100%;
 }
 
@@ -167,7 +167,7 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 .panel {
   padding: 16px;
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(31, 53, 88, 0.05);
+  box-shadow: 0 10px 28px rgba(31, 53, 88, 0.07);
 }
 
 .topbar, .panel-header, .inline-form, .chatbar {
@@ -187,6 +187,9 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   grid-template-columns: 1.6fr 0.8fr;
   gap: 16px;
 }
+
+.conversation-panel { min-height: 500px; }
+.citations-panel { min-height: 500px; }
 
 .stack, .list, .messages {
   display: grid;
@@ -234,6 +237,8 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.primary:disabled { background: #9bb8f3; color: #fff; box-shadow: none; }
 
 .primary {
   background: var(--accent);
